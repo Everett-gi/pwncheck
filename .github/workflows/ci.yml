@@ -1,0 +1,64 @@
+# CI do PwnCheck: lint, formatação, testes e scans de segurança a cada push/PR na main.
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Botão "Run workflow" na aba Actions: roda o CI na hora, sem precisar de um push.
+  workflow_dispatch:
+
+# Menor privilégio: o token do workflow só pode LER o repositório.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v7
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependências (execução + desenvolvimento)
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Formatação (ruff format)
+        run: ruff format --check .
+
+      - name: Testes (pytest)
+        run: pytest -q
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v7
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Instalar ferramentas de segurança
+        run: pip install pip-audit bandit
+
+      # Os scans BLOQUEIAM o CI: o projeto é pequeno e novo, então uma vulnerabilidade
+      # nova numa dependência deve ser tratada na hora.
+      - name: Scan de vulnerabilidades nas dependências (pip-audit)
+        run: pip-audit -r requirements.txt
+
+      - name: Análise estática de segurança (bandit)
+        run: bandit -r app -ll

@@ -1,0 +1,19 @@
+# Normaliza os finais de linha: o repositório guarda tudo com LF (padrão do Linux),
+# que é onde o projeto roda de verdade (Docker, CI, servidor). Sem isto, arquivos
+# criados no Windows entram com CRLF e podem quebrar scripts dentro do container.
+# É o mesmo problema do modo texto do fopen() em C no Windows ("\r\n" vs "\n").
+* text=auto eol=lf
+
+# Scripts do Windows precisam de CRLF para rodar corretamente no próprio Windows.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binários: nunca converter (o "text=auto" já detecta, isto é só uma garantia).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary

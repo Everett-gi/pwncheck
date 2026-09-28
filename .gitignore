@@ -1,0 +1,33 @@
+# Segredos (nunca versionar)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Banco local / dumps (a partir da fase 3)
+pgdata/
+*.dump
+
+# IDE / Sistema Operacional
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
