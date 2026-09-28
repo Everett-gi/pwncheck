@@ -1,6 +1,6 @@
 """Linha de comando para testar o PwnCheck com a API real (ferramenta da fase 1).
 
-Uso (dentro de python/pwncheck, com o .venv ativo):
+Uso (dentro da pasta do projeto, com o .venv ativo):
     python -m app.cli
 
 A senha é lida sem eco na tela (getpass) e nunca é impressa, logada ou salva.

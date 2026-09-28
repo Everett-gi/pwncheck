@@ -3,8 +3,9 @@
 > **Objetivo:** verificar se uma senha vazou **sem enviá-la a ninguém**, com código testado
 > automaticamente — inclusive um teste que prova que a senha não sai da máquina.
 >
-> **Pré-requisitos:** [Lição 00 (ambiente)](../../../../tutorial/00-ambiente.md) e
-> [Lição 01 (Python para quem vem do C/C++)](../../../../tutorial/01-python-para-quem-vem-do-c.md).
+> **Pré-requisitos:** [Lição 00 (ambiente)](https://github.com/Everett-gi/Projetos-e-ideias/blob/main/tutorial/00-ambiente.md) e
+> [Lição 01 (Python para quem vem do C/C++)](https://github.com/Everett-gi/Projetos-e-ideias/blob/main/tutorial/01-python-para-quem-vem-do-c.md),
+> na trilha de aprendizado do portfólio.
 
 **O que você vai aprender:** `hashlib` e hashes criptográficos · `str` × `bytes` na prática ·
 separar lógica pura de E/S · cliente HTTP com `httpx` · injeção de dependência · `pytest`
@@ -100,7 +101,8 @@ Uma função de hash criptográfica transforma qualquer entrada em um valor de t
 ## 4. A estrutura do projeto
 
 ```
-python/pwncheck/
+pwncheck/
+├── .github/workflows/ci.yml  <- o CI (seção 11)
 ├── app/                      <- o código (um "pacote": pasta com __init__.py)
 │   ├── __init__.py
 │   ├── kanonymity.py         <- funções PURAS: hash, divisão, parsing
@@ -114,6 +116,7 @@ python/pwncheck/
 ├── pyproject.toml            <- configuração do ruff e do pytest
 ├── requirements.txt          <- dependências de execução
 ├── requirements-dev.txt      <- + dependências de desenvolvimento
+├── .gitignore, .gitattributes
 └── .venv/                    <- ambiente virtual (fora do Git)
 ```
 
@@ -296,7 +299,7 @@ if __name__ == "__main__":
   em C++.
 - `main() -> int` + `sys.exit(main())` reproduz o `int main()` do C: o número vira o código de
   saída do processo (0 = sucesso). No PowerShell, veja com `$LASTEXITCODE`.
-- **Como rodar:** `python -m app.cli`, de dentro de `python/pwncheck`. O `-m` executa o módulo
+- **Como rodar:** `python -m app.cli`, de dentro da pasta do projeto. O `-m` executa o módulo
   `app.cli` como programa principal e coloca a pasta atual no caminho de busca — é por isso
   que o `from app.hibp_client import ...` funciona.
 
@@ -481,24 +484,19 @@ As regras ativadas no `pyproject.toml`:
 ## 11. CI: GitHub Actions
 
 A cada `push`, o GitHub sobe uma máquina Ubuntu **nova e limpa**, baixa o repositório e roda
-os passos do arquivo [`.github/workflows/pwncheck-ci.yml`](../../../../.github/workflows/pwncheck-ci.yml).
+os passos do arquivo [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 Se o código só funciona "na sua máquina", o CI descobre.
 
 ```yaml
 on:
   push:
-    branches: [ main ]
-    paths:                       # monorepo: só roda se o PwnCheck mudou
-      - "python/pwncheck/**"
-      - ".github/workflows/pwncheck-ci.yml"
+    branches: [ main ]           # a cada push na main...
+  pull_request:
+    branches: [ main ]           # ...e a cada pull request para a main
   workflow_dispatch:             # botão "Run workflow" na aba Actions (execução manual)
 
 permissions:
   contents: read                 # menor privilégio: o token do CI só pode ler
-
-defaults:
-  run:
-    working-directory: python/pwncheck   # todos os comandos rodam na pasta do projeto
 ```
 
 São dois *jobs*, que rodam em paralelo:
@@ -524,15 +522,19 @@ São dois *jobs*, que rodam em paralelo:
 
 Os resultados aparecem na aba **Actions** do repositório no GitHub.
 
-**Um detalhe que apareceu na prática:** no primeiro push, só o PwnCheck CI rodou — o do DocSage,
-não. Num branch novo, o GitHub não tem um "antes" para comparar, e a avaliação do filtro
-`paths` acabou considerando só o último commit enviado, que só mexia no PwnCheck. Por isso os
-dois workflows ganharam o gatilho `workflow_dispatch`: com ele, qualquer workflow pode ser
-rodado manualmente pela aba Actions (*Run workflow*), sem precisar de um push.
+### Histórico: quando o PwnCheck morava no monorepo
+
+O PwnCheck nasceu dentro do repositório [Projetos-e-ideias](https://github.com/Everett-gi/Projetos-e-ideias),
+junto com os outros projetos, e depois ganhou um repositório próprio (o porquê está na
+[Lição 02](https://github.com/Everett-gi/Projetos-e-ideias/blob/main/tutorial/02-um-repositorio-por-projeto.md)).
+Lá, o workflow precisava de mais configuração: o GitHub só lê workflows na raiz do repositório,
+então ele tinha um filtro `paths:` (rodar só quando `python/pwncheck/**` mudasse) e um
+`working-directory` apontando para a pasta do projeto. No primeiro push, esse filtro chegou a
+impedir o CI do DocSage de rodar. Com um repositório por projeto, o workflow ficou mais simples.
 
 ### O CI pegou um erro que tinha passado localmente
 
-Nesse mesmo primeiro push, o job `test` **falhou** no passo de formatação — e na máquina local
+Ainda no monorepo, no primeiro push, o job `test` **falhou** no passo de formatação — e na máquina local
 o mesmo comando tinha dito *already formatted*. A causa: o `ruff format` também formata os
 blocos de código Python **dentro de arquivos Markdown**, e esta lição foi escrita *depois* da
 última verificação local. Um trecho tinha uma linha em branco antes de um `def`, e o padrão
@@ -555,7 +557,7 @@ quebrar o CI.
 Rode você mesmo, num terminal **PowerShell 7**:
 
 ```powershell
-cd "C:\Users\gmnas\OneDrive\Documentos\Projetos e ideias\python\pwncheck"
+cd C:\dev\pwncheck
 .\.venv\Scripts\Activate.ps1
 
 pytest -v               # esperado: 17 passed

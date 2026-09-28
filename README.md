@@ -1,5 +1,7 @@
 # PwnCheck
 
+[![CI](https://github.com/Everett-gi/pwncheck/actions/workflows/ci.yml/badge.svg)](https://github.com/Everett-gi/pwncheck/actions/workflows/ci.yml)
+
 Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a ninguém**,
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
@@ -32,7 +34,8 @@ milhares de hashes, e não tem como saber qual era o nosso. A resposta ainda vem
 Pré-requisito: Python 3.12.
 
 ```powershell
-cd python\pwncheck
+git clone https://github.com/Everett-gi/pwncheck.git
+cd pwncheck
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
@@ -60,3 +63,7 @@ python -m app.cli      # verifica uma senha de verdade (a digitação fica ocult
 6. Deploy com HTTPS
 
 O passo a passo de cada fase, em formato de tutorial, está em [docs/tutorial/](docs/tutorial/).
+
+---
+
+Parte do portfólio [Projetos-e-ideias](https://github.com/Everett-gi/Projetos-e-ideias).
