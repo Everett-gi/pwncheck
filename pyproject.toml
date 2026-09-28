@@ -5,6 +5,9 @@
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# O ruff também formata blocos de código dentro de arquivos Markdown. As lições em docs/
+# têm trechos didáticos (recortes, comentários alinhados): ficam fora do lint e do format.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # E/W = estilo (pycodestyle) · F = erros reais (pyflakes)

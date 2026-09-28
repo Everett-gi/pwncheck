@@ -331,6 +331,7 @@ O pytest é o GoogleTest do Python, com muito menos cerimônia:
 # printf 'password' | sha1sum
 PASSWORD_SHA1 = "5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8"
 
+
 def test_sha1_hex_de_valor_conhecido():
     assert sha1_hex("password") == PASSWORD_SHA1
 ```
@@ -490,6 +491,7 @@ on:
     paths:                       # monorepo: só roda se o PwnCheck mudou
       - "python/pwncheck/**"
       - ".github/workflows/pwncheck-ci.yml"
+  workflow_dispatch:             # botão "Run workflow" na aba Actions (execução manual)
 
 permissions:
   contents: read                 # menor privilégio: o token do CI só pode ler
@@ -522,6 +524,30 @@ São dois *jobs*, que rodam em paralelo:
 
 Os resultados aparecem na aba **Actions** do repositório no GitHub.
 
+**Um detalhe que apareceu na prática:** no primeiro push, só o PwnCheck CI rodou — o do DocSage,
+não. Num branch novo, o GitHub não tem um "antes" para comparar, e a avaliação do filtro
+`paths` acabou considerando só o último commit enviado, que só mexia no PwnCheck. Por isso os
+dois workflows ganharam o gatilho `workflow_dispatch`: com ele, qualquer workflow pode ser
+rodado manualmente pela aba Actions (*Run workflow*), sem precisar de um push.
+
+### O CI pegou um erro que tinha passado localmente
+
+Nesse mesmo primeiro push, o job `test` **falhou** no passo de formatação — e na máquina local
+o mesmo comando tinha dito *already formatted*. A causa: o `ruff format` também formata os
+blocos de código Python **dentro de arquivos Markdown**, e esta lição foi escrita *depois* da
+última verificação local. Um trecho tinha uma linha em branco antes de um `def`, e o padrão
+pede duas. Duas lições:
+
+1. **Rode as verificações sobre o estado final**, logo antes do commit, e não "um pouco antes".
+   Existe uma ferramenta que automatiza isso, o *pre-commit*, que roda o ruff a cada
+   `git commit`. Fica para uma fase futura.
+2. **É exatamente para isso que o CI existe:** ele roda numa máquina limpa, sobre o commit
+   exato, sem cache e sem "mas na minha máquina funcionou".
+
+A correção foi tirar a pasta `docs/` do alcance do ruff (`extend-exclude` no
+`pyproject.toml`): os trechos das lições são didáticos, e editar documentação não deveria
+quebrar o CI.
+
 ---
 
 ## 12. Mão na massa
@@ -534,7 +560,7 @@ cd "C:\Users\gmnas\OneDrive\Documentos\Projetos e ideias\python\pwncheck"
 
 pytest -v               # esperado: 17 passed
 ruff check .            # esperado: All checks passed!
-ruff format --check .   # esperado: 8 files already formatted
+ruff format --check .   # esperado: 9 files already formatted
 python -m app.cli       # digite uma senha fraca, como 123456, e depois uma senha forte
 ```
 
