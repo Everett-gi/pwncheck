@@ -1,0 +1,8 @@
+# Dependências de EXECUÇÃO — o que a aplicação precisa para rodar (e o que vai
+# para a imagem Docker em produção). Novas entram aqui conforme as fases avançam.
+#
+# "==0.28.*" aceita correções (0.28.1, 0.28.2...) mas não uma versão nova que
+# possa quebrar a API. É o equilíbrio entre estabilidade e receber patches.
+
+# --- Cliente HTTP (consulta à API Pwned Passwords) ---
+httpx==0.28.*

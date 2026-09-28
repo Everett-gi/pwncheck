@@ -1,0 +1,11 @@
+# Dependências de DESENVOLVIMENTO — testes e lint. Não vão para produção.
+# Instale com:  python -m pip install -r requirements-dev.txt
+
+# Inclui tudo de requirements.txt (como um #include).
+-r requirements.txt
+
+# --- Testes ---
+pytest==9.*
+
+# --- Lint (estilo + bugs comuns + regras de segurança) ---
+ruff==0.16.*

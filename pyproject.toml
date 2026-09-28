@@ -1,0 +1,20 @@
+# Configuração das ferramentas de qualidade (lint e testes).
+# O pyproject.toml é o arquivo de configuração padrão de projetos Python —
+# cada ferramenta lê a sua seção [tool.<nome>].
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W = estilo (pycodestyle) · F = erros reais (pyflakes)
+# I = ordenação de imports · B = bugs comuns (bugbear) · S = segurança (bandit)
+select = ["E", "W", "F", "I", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Em testes, o uso de "assert" é esperado (S101), e senhas escritas no código
+# (S105/S106) são dados de teste de propósito — em app/ as regras continuam valendo.
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
