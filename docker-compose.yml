@@ -8,6 +8,10 @@
 # As variáveis ${...} vêm do arquivo .env (o Compose o lê sozinho). Copie o .env.example.
 # A aplicação roda direto na sua máquina (fora do Docker) e conecta em localhost:5432.
 
+# Nome do projeto: prefixa containers, redes e volumes. Diferente do de produção
+# ("pwncheck-prod", no docker-compose.prod.yml) para os dois nunca compartilharem o volume.
+name: pwncheck-dev
+
 services:
   db:
     image: postgres:16-alpine          # PostgreSQL 16 sobre Alpine Linux (imagem pequena)

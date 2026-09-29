@@ -84,3 +84,46 @@ jobs:
 
       - name: Análise estática de segurança (bandit)
         run: bandit -r app -ll
+
+  # Fase 6: constrói a imagem e sobe a stack de PRODUÇÃO inteira (banco, migrações, aplicação
+  # e Caddy com HTTPS), como no servidor. Pega erros de Dockerfile, de compose e de Caddyfile.
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v7
+
+      # Segredos aleatórios e descartáveis: existem só durante o job. DOMAIN=localhost faz o
+      # Caddy usar a própria CA local (não há DNS público para o Let's Encrypt aqui).
+      - name: Criar o .env de teste
+        run: |
+          PW=$(openssl rand -hex 24)
+          cat > .env <<EOF
+          POSTGRES_DB=pwncheck
+          POSTGRES_USER=pwncheck
+          POSTGRES_PASSWORD=$PW
+          DATABASE_URL=postgresql+psycopg://pwncheck:$PW@pwncheck-db:5432/pwncheck
+          JWT_SECRET=$(openssl rand -hex 32)
+          DOMAIN=localhost
+          ACME_EMAIL=ci@example.com
+          EOF
+
+      - name: Subir a stack de produção (build, migrações, aplicação e Caddy)
+        run: docker compose -f docker-compose.prod.yml up -d --build --wait
+
+      - name: Teste de fumaça por HTTPS
+        run: |
+          curl -fsk https://localhost/health
+          curl -sk -D - -o /dev/null https://localhost/health | grep -i "strict-transport-security"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/health)" = "308"
+          test "$(curl -sk -o /dev/null -w '%{http_code}' -X POST https://localhost/check \
+            -H 'content-type: application/json' -d '{"password":"x"}')" = "401"
+
+      - name: Logs dos containers (só se algo falhou)
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs
+
+      - name: Derrubar a stack
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v

@@ -1,0 +1,28 @@
+# Dependabot: o GitHub abre pull requests sozinho quando sai uma versão nova (ou uma correção
+# de segurança) de uma dependência. O CI roda em cada PR — se passar, é só revisar e aceitar.
+version: 2
+updates:
+  # requirements.txt e requirements-dev.txt
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+
+  # As actions usadas no .github/workflows/ci.yml (actions/checkout, setup-python...)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  # A imagem base do Dockerfile (python:3.12-slim)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"

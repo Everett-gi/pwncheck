@@ -1,0 +1,37 @@
+# Caddy: proxy reverso + HTTPS automático (Let's Encrypt). Fase 6.
+# {$DOMAIN} e {$ACME_EMAIL} vêm do .env, pelo docker-compose.prod.yml.
+
+{
+	# E-mail para os avisos do Let's Encrypt (ex.: certificado perto de vencer sem renovar).
+	email {$ACME_EMAIL}
+
+	# Só HTTP/1.1 e HTTP/2. O HTTP/3 usaria UDP 443, que não está aberto no firewall da VM.
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$DOMAIN} {
+	# Compressão das respostas (as faixas do /range são texto: comprimem bem).
+	encode zstd gzip
+
+	# Primeira barreira do tamanho do corpo; a aplicação tem a segunda (16 KB também).
+	request_body {
+		max_size 16KB
+	}
+
+	header {
+		# HSTS: "use SEMPRE HTTPS neste domínio pelo próximo ano". Só faz sentido numa resposta
+		# HTTPS — por isso mora aqui, e não na aplicação.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Não anunciar o servidor usado. (Os outros cabeçalhos de segurança vêm da aplicação.)
+		-Server
+	}
+
+	# O Caddy repassa para a aplicação, pela rede "frontend" do Docker, e envia o IP real do
+	# usuário no X-Forwarded-For (sobrescrevendo o que o cliente tiver mandado).
+	reverse_proxy pwncheck-app:8080
+
+	# Log de acesso na saída padrão (docker compose logs caddy), com a rotação do Docker.
+	log
+}

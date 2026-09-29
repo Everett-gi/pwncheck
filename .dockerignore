@@ -1,0 +1,31 @@
+# O que NÃO vai para o contexto do build (nem, portanto, para a imagem).
+# Segredos primeiro: o .env nunca pode entrar numa imagem.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Controle de versão, ambientes e caches locais.
+# Atenção: um padrão sem "**/" só vale na RAIZ do contexto. "__pycache__" sozinho deixaria
+# passar app/__pycache__; "**/__pycache__" pega em qualquer profundidade.
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Nada disso é necessário para rodar a aplicação
+tests
+docs
+db
+*.md
+pgdata
+*.dump
+.idea
+.vscode
+.DS_Store

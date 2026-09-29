@@ -6,9 +6,10 @@ Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
 
-> 🚧 **Em construção — fases 1 a 5 de 6 concluídas:** o cliente k-anonymity, a política de
-> senha (NIST SP 800-63B-4), o cache de prefixos em PostgreSQL, a API web (FastAPI) com contas
-> de usuário, *rate limit* e métricas. Falta o deploy com HTTPS.
+> ✅ **Completo — 6 de 6 fases:** cliente k-anonymity, política de senha (NIST SP 800-63B-4),
+> cache de prefixos em PostgreSQL, API web (FastAPI) com contas de usuário, *rate limit* e
+> métricas, e deploy com HTTPS (Docker + Caddy). Cada fase tem uma lição em
+> [docs/tutorial/](docs/tutorial/).
 
 ## Como funciona
 
@@ -100,6 +101,21 @@ uvicorn app.main:create_app --factory --reload   # http://127.0.0.1:8000 e /docs
 
 Sem o banco configurado, os testes que precisam dele são pulados e o resto roda normalmente.
 
+## Deploy
+
+A stack de produção (`docker-compose.prod.yml`) tem quatro serviços em duas redes isoladas:
+PostgreSQL, um migrador (Alembic, roda e termina antes da aplicação subir), a aplicação
+(imagem em dois estágios, usuário não-root, código só leitura) e o **Caddy**, único exposto à
+internet, com **HTTPS automático** (Let's Encrypt), HSTS e HTTP/2.
+
+```
+internet ──443──> caddy ──(frontend)──> pwncheck-app ──(backend)──> pwncheck-db
+```
+
+O passo a passo para a Oracle Cloud (inclusive dividindo a VM com o DocSage, com um Caddy só)
+está em [docs/DEPLOY.md](docs/DEPLOY.md). O CI sobe essa mesma stack a cada push e a testa por
+HTTPS.
+
 ## Qualidade e segurança
 
 - **Testes com a API simulada** (`httpx.MockTransport`), incluindo um que garante que só o
@@ -108,7 +124,9 @@ Sem o banco configurado, os testes que precisam dele são pulados e o resto roda
   savepoints; as migrações do Alembic são testadas a cada execução (`alembic check`).
 - **Lint** com `ruff`, incluindo as regras de segurança do bandit, e formatação automática.
 - **CI** no GitHub Actions: lint, formatação, testes, `pip-audit` e `bandit` a cada push, com
-  token de privilégio mínimo.
+  token de privilégio mínimo — e a stack de produção inteira (build, migrações, Caddy) com um
+  teste de fumaça por HTTPS. **Dependabot** para pip, actions e a imagem base.
+- **[SECURITY.md](SECURITY.md)**: as medidas organizadas pelo OWASP Top 10, LGPD e limitações.
 - A senha nunca é impressa, logada, persistida ou aceita como argumento de linha de comando.
 
 ## Roadmap
@@ -118,9 +136,17 @@ Sem o banco configurado, os testes que precisam dele são pulados e o resto roda
 3. ✅ Cache de prefixos (PostgreSQL + SQLAlchemy + Alembic + Docker)
 4. ✅ API REST (FastAPI) + autenticação (Argon2id, JWT, refresh com rotação)
 5. ✅ Rate limit (janela deslizante) + métricas
-6. Deploy com HTTPS
+6. ✅ Deploy com HTTPS (Docker, Caddy, Let's Encrypt)
 
-O passo a passo de cada fase, em formato de tutorial, está em [docs/tutorial/](docs/tutorial/).
+O passo a passo de cada fase, em formato de tutorial (com diagramas e glossário), está em
+[docs/tutorial/](docs/tutorial/):
+
+1. [Cliente k-anonymity](docs/tutorial/fase-1-k-anonymity.md)
+2. [Política de senha](docs/tutorial/fase-2-politica-de-senha.md)
+3. [Cache de prefixos: PostgreSQL, SQLAlchemy, Alembic e Docker](docs/tutorial/fase-3-cache-postgresql.md)
+4. [API REST com FastAPI + autenticação](docs/tutorial/fase-4-api-fastapi-autenticacao.md)
+5. [Rate limit e métricas](docs/tutorial/fase-5-rate-limit-metricas.md)
+6. [Deploy com HTTPS](docs/tutorial/fase-6-deploy-https.md)
 
 ---
 

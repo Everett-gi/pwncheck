@@ -4,8 +4,8 @@
 > [Everett-gi/Projetos-e-ideias](https://github.com/Everett-gi/Projetos-e-ideias): lá ficam as
 > convenções compartilhadas (README), o guia de deploy (DEPLOY-GERAL.md) e a trilha de
 > aprendizado (tutorial/). Referência de qualidade: o DocSage (Everett-gi/docsage).
-> **Status:** 🚧 em construção — fases 1 a 5 concluídas (cliente k-anonymity, política de senha,
-> cache de prefixos, API FastAPI com autenticação, rate limit e métricas). Falta o deploy.
+> **Status:** ✅ completo — as 6 fases do plano de build (cliente k-anonymity, política de senha,
+> cache de prefixos, API FastAPI com autenticação, rate limit e métricas, deploy com HTTPS).
 
 ## Modo tutorial
 
@@ -78,7 +78,14 @@ A senha e o hash completo nunca trafegam.
 | `tests/test_security.py` | Argon2 e os ataques ao JWT (expirado, outra chave, adulterado, `alg: none`...). |
 | `tests/test_api_auth.py`, `tests/test_api_passwords.py`, `tests/test_api_limits.py` | API de ponta a ponta com `TestClient` + `dependency_overrides` (banco transacional e HIBP falso). `make_api(rate_limit_...="3/minute")` muda a configuração. |
 | `tests/test_ratelimit.py` | As contas da janela deslizante, incluindo `test_retry_after_nunca_mente` (milhares de casos). |
-| `.github/workflows/ci.yml` | CI: ruff (lint + format), pytest, pip-audit e bandit. |
+| `.github/workflows/ci.yml` | CI: ruff (lint + format), pytest (com PostgreSQL), pip-audit, bandit e o job `docker` (sobe a stack de produção e testa por HTTPS). |
+| `.github/dependabot.yml` | Atualizações automáticas: pip (semanal), actions e imagem base (mensal). |
+| `Dockerfile`, `.dockerignore` | Imagem em dois estágios, usuário `app` (uid 10001), código só leitura, HEALTHCHECK. No `.dockerignore`, use `**/` para padrões em subpastas. |
+| `docker-compose.prod.yml` | Produção (projeto `pwncheck-prod`): `pwncheck-db`, `pwncheck-migrate` (one-shot), `pwncheck-app`, `caddy`; redes `backend`/`frontend`; logs com rotação. |
+| `docker-compose.shared-caddy.yml` | Override para VM com Caddy central (ex.: o do DocSage): desliga o Caddy daqui e liga o app à rede `EDGE_NETWORK`. |
+| `Caddyfile` | HTTPS automático, HSTS, HTTP/1.1+2, `request_body` 16 KB, `reverse_proxy pwncheck-app:8080`. |
+| `docs/DEPLOY.md` | Passo a passo na Oracle Cloud (cenários: sozinho ou VM compartilhada), cron, backup, restauração. |
+| `SECURITY.md` | Medidas por OWASP Top 10, LGPD e limitações conhecidas. |
 
 **Regras de arquitetura:**
 - `kanonymity.py`, `policy.py` e `freshness.py` não importam rede, banco nem config. Lógica
@@ -108,6 +115,7 @@ alembic upgrade head                  # aplica as migrações
 python -m app.cli --cache             # consulta passando pelo cache
 python -m app.manage cache-stats      # estado do cache
 uvicorn app.main:create_app --factory --reload   # a API (fase 4): http://127.0.0.1:8000/docs
+docker compose -f docker-compose.prod.yml up -d --build --wait   # stack de produção (fase 6)
 ```
 
 ## Modelo de dados
@@ -147,7 +155,8 @@ HTTPS obrigatório; cache para reduzir chamadas externas.
    — lição: `docs/tutorial/fase-4-api-fastapi-autenticacao.md`
 5. ✅ Rate limit (janela deslizante no PostgreSQL) + métricas
    — lição: `docs/tutorial/fase-5-rate-limit-metricas.md`
-6. Deploy (ver `DEPLOY-GERAL.md` no Projetos-e-ideias)
+6. ✅ Deploy com HTTPS (Dockerfile, Compose de produção, Caddy; ver `docs/DEPLOY.md` e o
+   `DEPLOY-GERAL.md` do Projetos-e-ideias) — lição: `docs/tutorial/fase-6-deploy-https.md`
 
 ## Armadilhas conhecidas
 - **SHA-1 exige `usedforsecurity=False`.** Sem isso o ruff/bandit acusa hash inseguro (S324).
@@ -171,6 +180,13 @@ HTTPS obrigatório; cache para reduzir chamadas externas.
   limites (`Rate`) usam `NoDecode`; teste configurações pelo AMBIENTE (`monkeypatch.setenv`).
 - **Contas do rate limit com `Fraction`, não `float`** (o float errava o Retry-After em 1 s).
 - **Retry-After pode passar do tamanho da janela** (as recusadas contam); o teto é 2 janelas.
+- **Nomes de projeto Compose precisam ser diferentes** (`pwncheck-dev` × `pwncheck-prod`): com o
+  mesmo nome, os dois compartilham o volume do banco — e dois PostgreSQL no mesmo diretório de
+  dados podem corrompê-lo (aconteceu no teste da fase 6).
+- **`FORWARDED_ALLOW_IPS="*"` só é seguro porque o app não publica porta.** Nunca publique a
+  porta 8080 em produção.
+- **Em ambientes com proxy TLS** (como o de nuvem onde o projeto foi desenvolvido), o
+  `docker build` precisa da CA do proxy via `--secret`; o Dockerfile do repositório fica limpo.
 - **`pkill -f` no terminal** pode casar com o próprio comando; pare o uvicorn com Ctrl+C.
 - **`getpass` precisa de um terminal de verdade.** No Windows ele lê direto do console
   (`msvcrt`); com a entrada redirecionada ou sem console, não se comporta como esperado.

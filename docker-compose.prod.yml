@@ -1,0 +1,109 @@
+# Stack de PRODUÇÃO (fase 6): PostgreSQL + migrações + aplicação + Caddy (HTTPS automático).
+#
+# No servidor, dentro da pasta do projeto, com o .env de produção criado AQUI (fora do Git):
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Redes: duas, para que cada serviço só alcance o que precisa (menor privilégio).
+#
+#     internet ──443──> caddy ──(frontend)──> pwncheck-app ──(backend)──> pwncheck-db
+#                                                              pwncheck-migrate ──┘
+#
+#   O Caddy não enxerga o banco; o banco não enxerga o Caddy; só o Caddy tem portas publicadas.
+#
+# Os serviços têm nomes com o prefixo "pwncheck-": numa VM com outros projetos (e outros
+# serviços chamados "app" ou "db"), nomes genéricos poderiam resolver para o container errado.
+
+# Nome do projeto no Compose. Ele prefixa containers, redes e VOLUMES. Tem que ser diferente
+# do projeto de desenvolvimento (que se chama "pwncheck", o nome da pasta): com o mesmo nome,
+# o banco de produção montaria o volume do banco de desenvolvimento — e dois PostgreSQL no
+# mesmo diretório de dados podem corromper tudo. Aconteceu no teste desta fase.
+name: pwncheck-prod
+
+# Um "pedaço" de YAML reaproveitado (âncora &): logs com rotação — sem isso, o log de cada
+# container cresce até encher o disco.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  pwncheck-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+    logging: *logging
+
+  # Roda as migrações UMA vez e termina. A aplicação só sobe depois que ele termina com sucesso:
+  # nunca uma versão nova do código com o esquema antigo do banco.
+  pwncheck-migrate:
+    build: .
+    image: pwncheck:latest
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    depends_on:
+      pwncheck-db:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+    logging: *logging
+
+  pwncheck-app:
+    build: .
+    image: pwncheck:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # De quem o uvicorn aceita o X-Forwarded-For (o IP real do usuário). "*" é seguro AQUI
+      # porque a aplicação não publica porta nenhuma: só quem está nas redes deste projeto (o
+      # Caddy) consegue falar com ela. Nunca combine "*" com uma porta publicada.
+      FORWARDED_ALLOW_IPS: "*"
+    depends_on:
+      pwncheck-db:
+        condition: service_healthy
+      pwncheck-migrate:
+        condition: service_completed_successfully
+    # Sem "ports": a aplicação só é alcançável de dentro das redes do Docker.
+    networks: [backend, frontend]
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"     # desafio HTTP do Let's Encrypt e redirecionamento para HTTPS
+      - "443:443"
+    environment:
+      # ${VAR:?mensagem}: se a variável faltar, o Compose para com a mensagem. Entre aspas,
+      # porque um ": " solto dentro do valor confundiria o YAML.
+      DOMAIN: "${DOMAIN:?defina DOMAIN no .env, por exemplo pwncheck-gil.duckdns.org}"
+      ACME_EMAIL: "${ACME_EMAIL:?defina ACME_EMAIL no .env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # certificados: não apague (evita o limite do Let's Encrypt)
+      - caddy_config:/config
+    depends_on:
+      pwncheck-app:
+        condition: service_healthy
+    networks: [frontend]
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+  frontend:

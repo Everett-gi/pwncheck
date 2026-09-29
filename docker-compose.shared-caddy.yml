@@ -1,0 +1,28 @@
+# Complemento para quando a VM JÁ TEM um Caddy nas portas 80/443 (por exemplo, o do DocSage).
+# O DEPLOY-GERAL recomenda um Caddy só por VM, com um bloco por domínio.
+#
+# Uso (os dois arquivos juntos; o segundo sobrescreve partes do primeiro):
+#   EDGE_NETWORK=docsage_internal docker compose \
+#     -f docker-compose.prod.yml -f docker-compose.shared-caddy.yml up -d --build
+#
+# E no Caddyfile do Caddy central, acrescente o bloco do PwnCheck (veja docs/DEPLOY.md):
+#   pwncheck-gil.duckdns.org {
+#       request_body { max_size 16KB }
+#       header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#       reverse_proxy pwncheck-app:8080
+#   }
+
+services:
+  # O Caddy deste projeto fica desligado: um "profile" que ninguém ativa.
+  caddy:
+    profiles: ["desligado"]
+
+  # A aplicação entra TAMBÉM na rede do Caddy central, para ele alcançá-la pelo nome
+  # "pwncheck-app" (é por isso que os serviços têm o prefixo "pwncheck-").
+  pwncheck-app:
+    networks: [backend, frontend, edge]
+
+networks:
+  edge:
+    external: true   # já existe (foi criada pelo outro projeto); o Compose não a cria nem apaga
+    name: ${EDGE_NETWORK:?defina EDGE_NETWORK com o nome da rede do Caddy central}
