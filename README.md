@@ -6,9 +6,9 @@ Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
 
-> 🚧 **Em construção — fases 1 a 3 de 6 concluídas:** o cliente k-anonymity, a política de
-> senha (NIST SP 800-63B-4) e o cache de prefixos em PostgreSQL. A API web (FastAPI) e o
-> deploy vêm nas próximas fases.
+> 🚧 **Em construção — fases 1 a 4 de 6 concluídas:** o cliente k-anonymity, a política de
+> senha (NIST SP 800-63B-4), o cache de prefixos em PostgreSQL e a API web (FastAPI) com
+> contas de usuário. *Rate limit*, métricas e o deploy vêm nas próximas fases.
 
 ## Como funciona
 
@@ -29,6 +29,23 @@ senha ──SHA-1──> 21BD1 2DC183F740EE76F27B78EB39C8AD972A757
 Quem observa a consulta — inclusive a própria API — vê apenas um prefixo compartilhado por
 milhares de hashes, e não tem como saber qual era o nosso. A resposta ainda vem com
 *padding* (entradas falsas), para que nem o tamanho do tráfego revele o prefixo.
+
+## A API
+
+| Rota | Acesso | O que faz |
+|---|---|---|
+| `GET /` | público | página que verifica a senha **no navegador**: só o prefixo do hash sai |
+| `GET /range/{prefixo}` | público | sufixos vazados do prefixo, no formato do HIBP (k-anonymity) |
+| `POST /check` | login | a senha foi vazada? quantas vezes? |
+| `POST /policy` | login | avaliação completa da política (com contexto e MFA) |
+| `POST /auth/register`, `/login`, `/refresh`, `/logout` | — | contas e sessões |
+| `GET` / `DELETE /auth/me` | login | ver e apagar a própria conta (LGPD) |
+
+Documentação interativa em `/docs`. Segurança da autenticação: senhas com **Argon2id**; login
+com tempo de resposta constante (não revela quais e-mails têm conta); **JWT** de 15 minutos com
+algoritmo fixo; **refresh tokens** de uso único, guardados como hash, com **detecção de reuso**
+(um token roubado e reutilizado derruba a sessão inteira). Respostas com CSP, `nosniff` e
+`no-store`; corpo limitado a 16 KB; erros de validação sem eco da senha.
 
 ## Política de senha
 
@@ -68,8 +85,11 @@ python -m app.cli      # verifica uma senha de verdade: vazamentos + política (
 Copy-Item .env.example .env        # e troque as senhas
 docker compose up -d               # PostgreSQL 16 num container
 alembic upgrade head               # cria as tabelas
-pytest -v                          # 103 testes, sem acesso à internet
+pytest -v                          # 163 testes, sem acesso à internet
 python -m app.cli --cache          # a 2ª consulta da mesma senha vem do cache
+
+# API (fase 4): preencha JWT_SECRET no .env antes
+uvicorn app.main:create_app --factory --reload   # http://127.0.0.1:8000 e /docs
 ```
 
 Sem o banco configurado, os testes que precisam dele são pulados e o resto roda normalmente.
@@ -90,7 +110,7 @@ Sem o banco configurado, os testes que precisam dele são pulados e o resto roda
 1. ✅ Cliente k-anonymity + testes
 2. ✅ Política de força de senha (NIST SP 800-63B-4)
 3. ✅ Cache de prefixos (PostgreSQL + SQLAlchemy + Alembic + Docker)
-4. API REST (FastAPI) + autenticação
+4. ✅ API REST (FastAPI) + autenticação (Argon2id, JWT, refresh com rotação)
 5. Rate limit + métricas
 6. Deploy com HTTPS
 

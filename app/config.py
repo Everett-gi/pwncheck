@@ -5,7 +5,8 @@ As classes formam uma escada, e cada ferramenta pede só o degrau de que precisa
 
     DatabaseSettings        URL do banco                  <- migrações (Alembic)
       └── CacheSettings     + timeout do HIBP e validade  <- CLI e comandos de manutenção
-                              do cache
+            │                 do cache
+            └── Settings    + segredo dos tokens, limites  <- a API web (fase 4)
 """
 
 from datetime import timedelta
@@ -44,3 +45,23 @@ class CacheSettings(DatabaseSettings):
             ttl=timedelta(hours=self.cache_ttl_hours),
             stale_if_error=timedelta(hours=self.cache_stale_if_error_hours),
         )
+
+
+class Settings(CacheSettings):
+    """Tudo o que a API web precisa."""
+
+    # Chave que assina os tokens JWT. Quem a tiver pode fabricar tokens de qualquer usuário:
+    # longa, aleatória e só no ambiente. Gere com: python -c "import secrets;
+    # print(secrets.token_urlsafe(48))"
+    jwt_secret: SecretStr = Field(min_length=32)
+    access_token_ttl_minutes: int = Field(default=15, ge=1)
+    refresh_token_ttl_days: int = Field(default=7, ge=1)
+    # Tamanho máximo do corpo de uma requisição. Nenhum endpoint precisa de mais que isso.
+    max_body_bytes: int = Field(default=16 * 1024, ge=1024)
+    log_level: str = "INFO"
+
+    def access_token_ttl(self) -> timedelta:
+        return timedelta(minutes=self.access_token_ttl_minutes)
+
+    def refresh_token_ttl(self) -> timedelta:
+        return timedelta(days=self.refresh_token_ttl_days)

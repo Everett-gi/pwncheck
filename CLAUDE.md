@@ -4,8 +4,8 @@
 > [Everett-gi/Projetos-e-ideias](https://github.com/Everett-gi/Projetos-e-ideias): lá ficam as
 > convenções compartilhadas (README), o guia de deploy (DEPLOY-GERAL.md) e a trilha de
 > aprendizado (tutorial/). Referência de qualidade: o DocSage (Everett-gi/docsage).
-> **Status:** 🚧 em construção — fases 1 a 3 concluídas (cliente k-anonymity, política de senha e
-> cache de prefixos no PostgreSQL).
+> **Status:** 🚧 em construção — fases 1 a 4 concluídas (cliente k-anonymity, política de senha,
+> cache de prefixos no PostgreSQL e API FastAPI com autenticação).
 
 ## Modo tutorial
 
@@ -32,7 +32,7 @@ HaveIBeenPwned): a senha **nunca** sai do servidor — só um prefixo de hash é
 
 ## Stack
 Python 3.12 · FastAPI · httpx · SQLAlchemy 2.1 (psycopg 3) · Alembic · pydantic-settings ·
-PostgreSQL 16 (cache de prefixos) · Docker Compose · pytest · ruff.
+PostgreSQL 16 (cache de prefixos) · Docker Compose · argon2-cffi · PyJWT · pytest · ruff.
 
 ## Como funciona (k-anonymity)
 1. Calcula o SHA-1 da senha localmente.
@@ -54,6 +54,14 @@ A senha e o hash completo nunca trafegam.
 | `app/models.py` | Tabelas SQLAlchemy 2 (`PrefixCache`). Mudou? Gere migração com `alembic revision --autogenerate`. |
 | `app/prefix_cache.py` | O cache: `get_range` (hit/miss/stale-if-error), `save_entry` (upsert), `check_password_cached`, `cache_stats`, `purge_expired`. Não faz commit. |
 | `app/manage.py` | Comandos de manutenção: `python -m app.manage cache-stats | purge-cache`. |
+| `app/security.py` | **Puro**: Argon2id (`hash_password`, `verify_password`, rehash, tempo fixo no login), JWT de acesso (HS256, `algorithms` fixo), refresh token (256 bits, guardado como SHA-256). |
+| `app/accounts.py` | Contas e sessões: cadastro, `authenticate`, `issue_tokens`, `rotate_refresh_token` (UPDATE atômico + revogação da família no reuso), logout, exclusão. Não faz commit. |
+| `app/schemas.py` | Pydantic: entrada com `SecretStr`, limites e `extra="forbid"`; saída filtrada por `response_model`. |
+| `app/deps.py` | Dependências do FastAPI: `DbSession`, `HibpClient`, `SettingsDep`, `CurrentUser` (401), `AdminUser` (403). |
+| `app/middleware.py` | `BodySizeLimitMiddleware` (413, com e sem Content-Length) e `security_headers` (CSP por tipo de página, nosniff, no-store...). |
+| `app/main.py` | `create_app(settings)`: lifespan (engine + cliente HIBP), middlewares, 422 sem eco do `input`, rotas, página estática. Rodar: `uvicorn app.main:create_app --factory`. |
+| `app/routers/` | `auth.py` (/auth/register, login, refresh, logout, me) e `passwords.py` (/check, /policy, /range/{prefixo}). |
+| `app/static/` | Página inicial: SHA-1 no navegador (Web Crypto) + `GET /range/{prefixo}`. Sem script inline (CSP). |
 | `app/cli.py` | Ferramenta de linha de comando para testar com a API real (`python -m app.cli [--cache]`): vazamentos + política. |
 | `migrations/` | Alembic: `env.py` (URL vem do ambiente) e `versions/000N_*.py`. Configuração em `[tool.alembic]` no `pyproject.toml`. |
 | `docker-compose.yml` | Desenvolvimento: PostgreSQL 16 num container (`db/init-test-db.sql` cria o `pwncheck_test`). |
@@ -63,6 +71,9 @@ A senha e o hash completo nunca trafegam.
 | `tests/conftest.py` | Fixtures `db_engine` (recria o esquema com as migrações) e `db_session` (savepoint + rollback). Sem `TEST_DATABASE_URL`, testes de banco são pulados; com `PWNCHECK_REQUIRE_DB=1` (CI), falham. |
 | `tests/test_prefix_cache.py` | Cache com PostgreSQL real e HIBP simulado — inclui a prova de que o banco não distingue senhas com o mesmo prefixo. |
 | `tests/test_migrations.py` | `alembic check` (modelos × migrações) e downgrade/upgrade completos. |
+| `tests/fakes.py` | `FakeHIBP`: HIBP simulado (corpo fixo ou `leaked={senha: contagem}` por prefixo). |
+| `tests/test_security.py` | Argon2 e os ataques ao JWT (expirado, outra chave, adulterado, `alg: none`...). |
+| `tests/test_api_auth.py`, `tests/test_api_passwords.py` | API de ponta a ponta com `TestClient` + `dependency_overrides` (banco transacional e HIBP falso). |
 | `.github/workflows/ci.yml` | CI: ruff (lint + format), pytest, pip-audit e bandit. |
 
 **Regras de arquitetura:**
@@ -70,7 +81,10 @@ A senha e o hash completo nunca trafegam.
   pura nova vai num módulo puro, com teste.
 - Só o **prefixo** do hash chega ao banco e aos logs. O sufixo é comparado em Python (mandá-lo
   numa consulta SQL levaria o hash completo ao servidor de banco).
-- Funções de serviço recebem a `Session` e **não fazem commit**: quem abre a sessão decide.
+- Funções de serviço recebem a `Session` e **não fazem commit**: quem abre a sessão decide
+  (na API, a rota).
+- Toda senha que entra pela API é `SecretStr` e nunca volta numa resposta (nem no 422).
+- Rotas `def` (síncronas, no threadpool). `async` só onde o ASGI exige (lifespan, middlewares).
 - Todo acesso HTTP recebe o `httpx.Client` de fora (injeção de dependência) — é o que permite
   testar sem internet.
 - A senha **nunca** é impressa, logada, persistida ou passada por argumento de linha de comando.
@@ -89,15 +103,23 @@ docker compose up -d                  # sobe o PostgreSQL (fase 3)
 alembic upgrade head                  # aplica as migrações
 python -m app.cli --cache             # consulta passando pelo cache
 python -m app.manage cache-stats      # estado do cache
+uvicorn app.main:create_app --factory --reload   # a API (fase 4): http://127.0.0.1:8000/docs
 ```
 
-## Modelo de dados (a partir da fase 3)
-- **prefix_cache** (prefix, suffixes JSONB, fetched_at)
-- **usage_metrics** (id, date, checks_count)
+## Modelo de dados
+- **prefix_cache** (prefix, suffixes JSONB, fetched_at) — fase 3
+- **users** (id, email único, password_hash Argon2id, is_admin, terms_accepted_at, created_at) — fase 4
+- **refresh_tokens** (id, user_id → users CASCADE, family_id, token_hash SHA-256 único,
+  expires_at, used_at, revoked_at, created_at) — fase 4
+- **usage_metrics** (id, date, checks_count) — fase 5
 
-## Endpoints principais (fase 4)
-- `POST /check` — recebe uma senha, retorna se foi vista em vazamentos e quantas vezes
-- `POST /policy` — valida força da senha contra uma política
+## Endpoints (fase 4)
+- `GET /` — página inicial: verificação 100% no navegador via `/range`
+- `GET /range/{prefixo}` — público: sufixos vazados do prefixo, formato do HIBP (k-anonymity)
+- `POST /check` — (login) recebe uma senha, retorna se foi vista em vazamentos e quantas vezes
+- `POST /policy` — (login) avalia a senha contra a política, com contexto e MFA
+- `POST /auth/register | login | refresh | logout`, `GET/DELETE /auth/me`
+- `GET /health`, `/docs` (Swagger), `/redoc`
 
 ## Foco de segurança
 A senha **nunca** é logada nem persistida; só o prefixo de hash trafega; **rate limit**;
@@ -111,7 +133,8 @@ HTTPS obrigatório; cache para reduzir chamadas externas.
    — lição: `docs/tutorial/fase-2-politica-de-senha.md`
 3. ✅ Cache de prefixos: PostgreSQL + SQLAlchemy + **Alembic** + Docker
    — lição: `docs/tutorial/fase-3-cache-postgresql.md`
-4. API (FastAPI) + autenticação
+4. ✅ API (FastAPI) + autenticação (Argon2id, JWT + refresh com rotação e detecção de reuso)
+   — lição: `docs/tutorial/fase-4-api-fastapi-autenticacao.md`
 5. Rate limit + métricas
 6. Deploy (ver `DEPLOY-GERAL.md` no Projetos-e-ideias)
 
@@ -128,5 +151,11 @@ HTTPS obrigatório; cache para reduzir chamadas externas.
 - **Os testes apagam o esquema do `TEST_DATABASE_URL`** (`DROP SCHEMA public CASCADE`). Nunca
   aponte essa variável para o banco de desenvolvimento ou produção.
 - **Datas sempre com fuso (UTC).** `datetime.now(UTC)` e `DateTime(timezone=True)`.
+- **O 422 padrão do FastAPI ecoa o `input`** (inclusive senhas, mesmo `SecretStr`). O handler em
+  `main.py` o remove; não o apague.
+- **Exceção dentro do `receive` vira 400 no FastAPI.** Por isso o limite de corpo lê e conta o
+  corpo antes de chamar a aplicação.
+- **Reuso de refresh token:** a rota faz `commit()` da revogação ANTES de responder 401.
+- **`pkill -f` no terminal** pode casar com o próprio comando; pare o uvicorn com Ctrl+C.
 - **`getpass` precisa de um terminal de verdade.** No Windows ele lê direto do console
   (`msvcrt`); com a entrada redirecionada ou sem console, não se comporta como esperado.

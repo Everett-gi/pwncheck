@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PwnCheck</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>PwnCheck</h1>
+    <p class="lead">
+      Esta senha já apareceu em algum vazamento? A verificação acontece <strong>no seu
+      navegador</strong>: a senha nunca sai daqui — nem para o nosso servidor.
+    </p>
+
+    <!-- Sem JavaScript, a Content-Security-Policy (form-action 'none') impede o envio:
+         a senha nunca vai parar numa URL. -->
+    <form id="check-form" autocomplete="off">
+      <label for="password">Senha</label>
+      <div class="row">
+        <input id="password" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" required>
+        <button type="submit">Verificar</button>
+      </div>
+    </form>
+
+    <ol id="steps" class="steps" hidden>
+      <li>SHA-1 calculado aqui: <code><span id="prefix" class="prefix"></span><span id="suffix" class="suffix"></span></code></li>
+      <li>Enviado ao servidor: só o prefixo <code id="sent"></code></li>
+      <li>Recebidos <strong id="received"></strong> sufixos vazados com esse prefixo; a comparação é feita aqui.</li>
+    </ol>
+
+    <p id="result" class="result" role="status" hidden></p>
+
+    <footer>
+      <p>
+        Como funciona: modelo <em>k-anonymity</em> da API
+        <a href="https://haveibeenpwned.com/Passwords">Pwned Passwords</a>. Quem observa a
+        consulta vê um prefixo compartilhado por cerca de 2 mil hashes e não sabe qual é o seu.
+        API e documentação em <a href="/docs">/docs</a> ·
+        código em <a href="https://github.com/Everett-gi/pwncheck">GitHub</a>.
+      </p>
+    </footer>
+  </main>
+</body>
+</html>

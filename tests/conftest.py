@@ -16,9 +16,15 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.orm import Session
+
+from app.config import Settings
+from app.deps import get_db, get_hibp_client
+from app.main import create_app
+from tests.fakes import FakeHIBP
 
 ROOT = Path(__file__).resolve().parent.parent  # a pasta do projeto
 
@@ -72,3 +78,36 @@ def db_session(db_engine: Engine) -> Iterator[Session]:
         finally:
             session.close()
             transaction.rollback()
+
+
+# --- Fixtures da API (fase 4) ------------------------------------------------------------------
+
+TEST_JWT_SECRET = "segredo-so-dos-testes-com-mais-de-32-caracteres"
+
+
+@pytest.fixture
+def settings() -> Settings:
+    """Configuração dos testes: nada vem do .env (_env_file=None), tudo é fixo."""
+    return Settings(
+        _env_file=None,
+        database_url=_TestSettings().test_database_url or "postgresql+psycopg://sem-banco/x",
+        jwt_secret=TEST_JWT_SECRET,
+    )
+
+
+@pytest.fixture
+def fake_hibp() -> FakeHIBP:
+    """HIBP simulado. Os testes acrescentam senhas "vazadas" em fake_hibp.leaked."""
+    return FakeHIBP(leaked={})
+
+
+@pytest.fixture
+def api(db_session: Session, fake_hibp: FakeHIBP, settings: Settings) -> Iterator[TestClient]:
+    """Um cliente HTTP falando com a aplicação inteira — rotas, middlewares, validação —
+    mas com o banco transacional e o HIBP simulado no lugar das dependências reais."""
+    app = create_app(settings)
+    hibp_client = fake_hibp.client()
+    app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_hibp_client] = lambda: hibp_client
+    with TestClient(app) as client:  # o "with" roda o lifespan (subida e desligamento)
+        yield client

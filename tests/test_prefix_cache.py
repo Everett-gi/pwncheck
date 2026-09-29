@@ -27,6 +27,7 @@ from app.prefix_cache import (
     purge_expired,
     save_entry,
 )
+from tests.fakes import FakeHIBP
 
 POLICY = CachePolicy(ttl=timedelta(hours=24), stale_if_error=timedelta(hours=168))
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
@@ -42,24 +43,8 @@ RANGE_BODY = f"{SUFFIX}:42\r\n011053FD0102E94D6AE2F8B83D76FAF94F6:3\r\n"
 pytestmark = pytest.mark.usefixtures("db_session")  # todos os testes deste arquivo usam banco
 
 
-class FakeHIBP:
-    """API do HIBP simulada que conta quantas vezes foi chamada."""
-
-    def __init__(self, body: str = RANGE_BODY, status: int = 200) -> None:
-        self.body = body
-        self.status = status
-        self.calls = 0
-
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        self.calls += 1
-        return httpx.Response(self.status, text=self.body)
-
-    def client(self) -> httpx.Client:
-        return httpx.Client(transport=httpx.MockTransport(self.handler))
-
-
 def test_primeira_consulta_busca_na_api_e_a_segunda_vem_do_cache(db_session):
-    api = FakeHIBP()
+    api = FakeHIBP(RANGE_BODY)
     client = api.client()
 
     first = get_range(db_session, client, PREFIX, policy=POLICY, now=NOW)
@@ -74,7 +59,7 @@ def test_primeira_consulta_busca_na_api_e_a_segunda_vem_do_cache(db_session):
 
 def test_copia_velha_e_renovada_quando_a_api_responde(db_session):
     save_entry(db_session, PREFIX, {SUFFIX: 1}, NOW - timedelta(hours=30))  # passou do TTL
-    api = FakeHIBP()
+    api = FakeHIBP(RANGE_BODY)
 
     result = get_range(db_session, api.client(), PREFIX, policy=POLICY, now=NOW)
 
@@ -93,7 +78,7 @@ def test_upsert_nao_deixa_objeto_desatualizado_na_sessao(db_session):
     """
     save_entry(db_session, PREFIX, {SUFFIX: 1}, NOW - timedelta(hours=30))
     held = load_entry(db_session, PREFIX)  # referência forte: mantém o objeto no mapa
-    api = FakeHIBP()
+    api = FakeHIBP(RANGE_BODY)
     client = api.client()
 
     assert get_range(db_session, client, PREFIX, policy=POLICY, now=NOW).source is CacheSource.MISS
@@ -145,7 +130,7 @@ def test_banco_recusa_prefixo_invalido(db_session, invalid):
 
 
 def test_check_password_cached(db_session):
-    client = FakeHIBP().client()
+    client = FakeHIBP(RANGE_BODY).client()
     assert check_password_cached(db_session, client, PASSWORD, policy=POLICY, now=NOW) == (
         42,
         CacheSource.MISS,
@@ -191,7 +176,7 @@ def test_o_banco_nao_consegue_distinguir_senhas_com_o_mesmo_prefixo(db_session):
     for password in (PASSWORD, SAME_PREFIX_PASSWORD):
         savepoint = db_session.begin_nested()  # cada senha começa com o cache vazio
         with record_sql(db_session) as statements:
-            client = FakeHIBP().client()
+            client = FakeHIBP(RANGE_BODY).client()
             check_password_cached(db_session, client, password, policy=POLICY, now=NOW)
         recordings.append(statements)
         savepoint.rollback()
@@ -206,7 +191,9 @@ def test_consulta_com_cache_quente_so_envia_o_prefixo(db_session):
     save_entry(db_session, PREFIX, {SUFFIX: 42}, NOW)
 
     with record_sql(db_session) as statements:
-        check_password_cached(db_session, FakeHIBP().client(), PASSWORD, policy=POLICY, now=NOW)
+        check_password_cached(
+            db_session, FakeHIBP(RANGE_BODY).client(), PASSWORD, policy=POLICY, now=NOW
+        )
 
     assert len(statements) == 1  # só o SELECT
     _, parameters = statements[0]
