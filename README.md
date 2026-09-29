@@ -6,8 +6,9 @@ Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
 
-> 🚧 **Em construção — fase 1 de 6 concluída:** o cliente k-anonymity, com testes.
-> A API web (FastAPI), o cache em PostgreSQL e o deploy vêm nas próximas fases.
+> 🚧 **Em construção — fases 1 e 2 de 6 concluídas:** o cliente k-anonymity e a política de
+> senha (NIST SP 800-63B-4). O cache em PostgreSQL, a API web (FastAPI) e o deploy vêm nas
+> próximas fases.
 
 ## Como funciona
 
@@ -29,6 +30,20 @@ Quem observa a consulta — inclusive a própria API — vê apenas um prefixo c
 milhares de hashes, e não tem como saber qual era o nosso. A resposta ainda vem com
 *padding* (entradas falsas), para que nem o tamanho do tráfego revele o prefixo.
 
+## Política de senha
+
+Não vazar não basta: a senha também precisa ser forte. A política segue o
+[NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) (2025):
+**comprimento acima de complexidade** (15+ caracteres, ou 8+ com MFA), **nenhuma** regra do
+tipo "maiúscula, número e símbolo", e comparação da senha inteira — e de seus derivados
+óbvios, como `P@ssw0rd123` — com senhas comuns, palavras do contexto e vazamentos. Toda
+rejeição vem com o motivo e uma dica.
+
+| Senha | Resultado |
+|---|---|
+| `P@ssw0rd` | ❌ curta, comum e vazada 6,4 milhões de vezes |
+| `cavalo correto bateria grampo azul` | ✅ aceita |
+
 ## Rodando localmente (Windows / PowerShell)
 
 Pré-requisito: Python 3.12.
@@ -40,8 +55,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
 
-pytest -v              # 17 testes, sem acesso à internet
-python -m app.cli      # verifica uma senha de verdade (a digitação fica oculta)
+pytest -v              # 74 testes, sem acesso à internet
+python -m app.cli      # verifica uma senha de verdade: vazamentos + política (digitação oculta)
 ```
 
 ## Qualidade e segurança
@@ -56,7 +71,7 @@ python -m app.cli      # verifica uma senha de verdade (a digitação fica ocult
 ## Roadmap
 
 1. ✅ Cliente k-anonymity + testes
-2. Política de força de senha
+2. ✅ Política de força de senha (NIST SP 800-63B-4)
 3. Cache de prefixos (PostgreSQL + Alembic + Docker)
 4. API REST (FastAPI) + autenticação
 5. Rate limit + métricas

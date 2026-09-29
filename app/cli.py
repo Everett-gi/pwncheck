@@ -1,4 +1,4 @@
-"""Linha de comando para testar o PwnCheck com a API real (ferramenta da fase 1).
+"""Linha de comando para testar o PwnCheck com a API real (fases 1 e 2).
 
 Uso (dentro da pasta do projeto, com o .venv ativo):
     python -m app.cli
@@ -14,6 +14,7 @@ import sys
 import httpx
 
 from app.hibp_client import check_password
+from app.policy import evaluate_password, format_count
 
 
 def main() -> int:
@@ -32,10 +33,17 @@ def main() -> int:
         return 2
 
     if count:
-        formatted = f"{count:,}".replace(",", ".")  # 1234567 -> "1.234.567"
-        print(f"ALERTA: esta senha apareceu {formatted} vezes em vazamentos. Não use!")
+        print(f"ALERTA: esta senha apareceu {format_count(count)} vezes em vazamentos. Não use!")
     else:
         print("OK: esta senha não aparece na base de vazamentos conhecidos.")
+
+    # Fase 2: a política completa, com a contagem que acabamos de obter.
+    result = evaluate_password(password, breach_count=count)
+    print(f"\nPolítica de senha (NIST SP 800-63B-4), {result.length} caracteres:")
+    if result.accepted:
+        print("  Aceita.")
+    for violation in result.violations:
+        print(f"  - [{violation.rule}] {violation.message}")
     return 0
 
 
