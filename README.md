@@ -6,9 +6,9 @@ Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
 
-> 🚧 **Em construção — fases 1 e 2 de 6 concluídas:** o cliente k-anonymity e a política de
-> senha (NIST SP 800-63B-4). O cache em PostgreSQL, a API web (FastAPI) e o deploy vêm nas
-> próximas fases.
+> 🚧 **Em construção — fases 1 a 3 de 6 concluídas:** o cliente k-anonymity, a política de
+> senha (NIST SP 800-63B-4) e o cache de prefixos em PostgreSQL. A API web (FastAPI) e o
+> deploy vêm nas próximas fases.
 
 ## Como funciona
 
@@ -44,9 +44,16 @@ rejeição vem com o motivo e uma dica.
 | `P@ssw0rd` | ❌ curta, comum e vazada 6,4 milhões de vezes |
 | `cavalo correto bateria grampo azul` | ✅ aceita |
 
+## Cache de prefixos
+
+As faixas consultadas ficam guardadas no PostgreSQL (~2 ms por leitura, contra ~80 ms da API),
+com validade de 24 h e uma janela de *stale-if-error*: se o HIBP cair, uma cópia de até 7 dias
+ainda responde. Só o **prefixo** chega ao banco — um teste prova que duas senhas diferentes
+com o mesmo prefixo geram exatamente os mesmos comandos SQL.
+
 ## Rodando localmente (Windows / PowerShell)
 
-Pré-requisito: Python 3.12.
+Pré-requisitos: Python 3.12 e, para o cache, Docker Desktop.
 
 ```powershell
 git clone https://github.com/Everett-gi/pwncheck.git
@@ -55,14 +62,24 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
 
-pytest -v              # 74 testes, sem acesso à internet
 python -m app.cli      # verifica uma senha de verdade: vazamentos + política (digitação oculta)
+
+# Banco (fase 3)
+Copy-Item .env.example .env        # e troque as senhas
+docker compose up -d               # PostgreSQL 16 num container
+alembic upgrade head               # cria as tabelas
+pytest -v                          # 103 testes, sem acesso à internet
+python -m app.cli --cache          # a 2ª consulta da mesma senha vem do cache
 ```
+
+Sem o banco configurado, os testes que precisam dele são pulados e o resto roda normalmente.
 
 ## Qualidade e segurança
 
 - **Testes com a API simulada** (`httpx.MockTransport`), incluindo um que garante que só o
   prefixo do hash sai da máquina: URL, cabeçalhos e corpo da requisição são inspecionados.
+- **Testes com PostgreSQL de verdade** (no CI, um *service container*), isolados por
+  savepoints; as migrações do Alembic são testadas a cada execução (`alembic check`).
 - **Lint** com `ruff`, incluindo as regras de segurança do bandit, e formatação automática.
 - **CI** no GitHub Actions: lint, formatação, testes, `pip-audit` e `bandit` a cada push, com
   token de privilégio mínimo.
@@ -72,7 +89,7 @@ python -m app.cli      # verifica uma senha de verdade: vazamentos + política (
 
 1. ✅ Cliente k-anonymity + testes
 2. ✅ Política de força de senha (NIST SP 800-63B-4)
-3. Cache de prefixos (PostgreSQL + Alembic + Docker)
+3. ✅ Cache de prefixos (PostgreSQL + SQLAlchemy + Alembic + Docker)
 4. API REST (FastAPI) + autenticação
 5. Rate limit + métricas
 6. Deploy com HTTPS

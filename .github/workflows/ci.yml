@@ -17,6 +17,28 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Um PostgreSQL de verdade para os testes do cache (fase 3), num container ao lado do job.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pwncheck_test
+          POSTGRES_USER: pwncheck
+          POSTGRES_PASSWORD: ci-only-password   # banco descartável, só existe durante o job
+        ports:
+          - 5432:5432
+        # O job só começa quando o banco aceita conexões.
+        options: >-
+          --health-cmd "pg_isready -U pwncheck -d pwncheck_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://pwncheck:ci-only-password@localhost:5432/pwncheck_test
+      # No CI, teste de banco que seria PULADO vira FALHA: não queremos um verde mentiroso.
+      PWNCHECK_REQUIRE_DB: "1"
+
     steps:
       - name: Checkout do código
         uses: actions/checkout@v7
@@ -38,7 +60,7 @@ jobs:
         run: ruff format --check .
 
       - name: Testes (pytest)
-        run: pytest -q
+        run: pytest -q -rs
 
   security:
     runs-on: ubuntu-latest

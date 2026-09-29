@@ -6,3 +6,11 @@
 
 # --- Cliente HTTP (consulta à API Pwned Passwords) ---
 httpx==0.28.*
+
+# --- Configuração (lê variáveis de ambiente e o .env) --- fase 3
+pydantic-settings==2.15.*
+
+# --- Banco de dados (cache de prefixos) --- fase 3
+sqlalchemy==2.1.*                # ORM: classes Python <-> tabelas
+psycopg[binary]==3.3.*           # driver do PostgreSQL ("binary" = já compilado, sem precisar de compilador C)
+alembic==1.20.*                  # migrações: versões do esquema do banco

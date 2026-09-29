@@ -1,0 +1,33 @@
+# Ambiente de DESENVOLVIMENTO: sobe o PostgreSQL num container.
+#
+#   docker compose up -d        # sobe em segundo plano
+#   docker compose ps           # confere se está "healthy"
+#   docker compose down         # para (os dados ficam no volume)
+#   docker compose down -v      # para E APAGA os dados
+#
+# As variáveis ${...} vêm do arquivo .env (o Compose o lê sozinho). Copie o .env.example.
+# A aplicação roda direto na sua máquina (fora do Docker) e conecta em localhost:5432.
+
+services:
+  db:
+    image: postgres:16-alpine          # PostgreSQL 16 sobre Alpine Linux (imagem pequena)
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # "127.0.0.1:" publica a porta só para a sua máquina (não fica exposta na rede local).
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data                                   # os dados
+      - ./db/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro   # banco de testes
+    healthcheck:
+      # "Saudável" = aceitando conexões. Sem isso, "subiu" só quer dizer "o processo existe".
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:     # volume nomeado: gerenciado pelo Docker, sobrevive a "docker compose down"

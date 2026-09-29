@@ -21,3 +21,25 @@ select = ["E", "W", "F", "I", "B", "S"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Alembic (migrações do banco). A configuração mora aqui, junto com a das outras
+# ferramentas; não há alembic.ini. A URL do banco NÃO fica aqui: o migrations/env.py a lê
+# das variáveis de ambiente (ela contém a senha).
+[tool.alembic]
+script_location = "%(here)s/migrations"
+# Nomes dos arquivos: 0001_create_prefix_cache.py (o número vem de --rev-id).
+file_template = "%%(rev)s_%%(slug)s"
+prepend_sys_path = ["."]
+
+# Depois de gerar uma migração, formata e corrige o arquivo com o ruff ("python -m ruff").
+[[tool.alembic.post_write_hooks]]
+name = "ruff_format"
+type = "module"
+module = "ruff"
+options = "format REVISION_SCRIPT_FILENAME"
+
+[[tool.alembic.post_write_hooks]]
+name = "ruff_fix"
+type = "module"
+module = "ruff"
+options = "check --fix REVISION_SCRIPT_FILENAME"
