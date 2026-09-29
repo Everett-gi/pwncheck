@@ -595,8 +595,11 @@ O CI ganhou um terceiro job, `docker`, que faz no GitHub o mesmo que fizemos aqu
 
 1. cria um `.env` com segredos **aleatórios e descartáveis** (`openssl rand`) e
    `DOMAIN=localhost`;
-2. `docker compose -f docker-compose.prod.yml up -d --build --wait` — constrói a imagem, roda as
-   migrações, sobe a aplicação e o Caddy, e espera todos ficarem saudáveis;
+2. `docker compose -f docker-compose.prod.yml up -d --build` — constrói a imagem, roda as
+   migrações e sobe a aplicação e o Caddy; depois, um laço tenta `https://localhost/health` a
+   cada 2 segundos, por até 2 minutos. (Uma espera explícita, em vez do `--wait` do Compose,
+   para não depender de como cada versão do Compose trata o migrador, que termina de
+   propósito);
 3. teste de fumaça por HTTPS: `/health` responde, o HSTS está lá, `http://` redireciona (308) e
    `/check` sem token dá 401;
 4. em caso de falha, imprime os logs dos containers; no fim, derruba tudo (`down -v`).

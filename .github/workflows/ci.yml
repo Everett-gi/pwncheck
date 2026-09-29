@@ -110,7 +110,18 @@ jobs:
           EOF
 
       - name: Subir a stack de produção (build, migrações, aplicação e Caddy)
-        run: docker compose -f docker-compose.prod.yml up -d --build --wait
+        run: docker compose -f docker-compose.prod.yml up -d --build
+
+      # Espera explícita (até 2 minutos), em vez do "--wait" do Compose: ela não depende de
+      # como cada versão do Compose trata o migrador, que termina de propósito.
+      - name: Esperar a aplicação responder pelo Caddy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsk https://localhost/health > /dev/null; then echo "no ar"; exit 0; fi
+            sleep 2
+          done
+          echo "a stack não respondeu a tempo"
+          exit 1
 
       - name: Teste de fumaça por HTTPS
         run: |
