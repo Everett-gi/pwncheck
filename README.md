@@ -62,7 +62,16 @@ python -m app.cli      # verifica uma senha de verdade (a digitação fica ocult
 5. Rate limit + métricas
 6. Deploy com HTTPS
 
-O passo a passo de cada fase, em formato de tutorial, está em [docs/tutorial/](docs/tutorial/).
+## Tutoriais
+
+Cada fase concluída vira uma lição, em [docs/tutorial/](docs/tutorial/):
+
+| Fase | Lição |
+|---|---|
+| 1 | [Cliente k-anonymity: hashing, testes e mocks](docs/tutorial/fase-1-k-anonymity.md) |
+
+As lições de base (ambiente, Python para quem vem do C/C++, organização dos repositórios)
+ficam na [trilha de aprendizado do portfólio](https://github.com/Everett-gi/Projetos-e-ideias/blob/main/tutorial/README.md).
 
 ---
 
