@@ -16,8 +16,9 @@ select = ["E", "W", "F", "I", "B", "S"]
 
 [tool.ruff.lint.per-file-ignores]
 # Em testes, o uso de "assert" é esperado (S101), e senhas escritas no código
-# (S105/S106) são dados de teste de propósito — em app/ as regras continuam valendo.
-"tests/*" = ["S101", "S105", "S106"]
+# (S105/S106/S107: em variáveis, argumentos e valores padrão) são dados de teste de
+# propósito — em app/ as regras continuam valendo.
+"tests/*" = ["S101", "S105", "S106", "S107"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -29,6 +30,7 @@ testpaths = ["tests"]
 script_location = "%(here)s/migrations"
 # Nomes dos arquivos: 0001_create_prefix_cache.py (o número vem de --rev-id).
 file_template = "%%(rev)s_%%(slug)s"
+truncate_slug_length = 60   # o padrão (40) corta nomes longos no meio de uma palavra
 prepend_sys_path = ["."]
 
 # Depois de gerar uma migração, formata e corrige o arquivo com o ruff ("python -m ruff").

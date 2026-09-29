@@ -11,17 +11,21 @@ Uma rota declara do que precisa nos parâmetros, e o FastAPI resolve:
 trocar uma dependência (app.dependency_overrides) para usar o banco de teste ou a API falsa.
 """
 
-from collections.abc import Iterator
-from typing import Annotated
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 import httpx
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app import metrics
 from app.accounts import TokenConfig
 from app.config import Settings
+from app.limiter import hit
 from app.models import User
+from app.ratelimit import Rate, rate_key
 from app.security import InvalidTokenError, decode_access_token
 
 
@@ -99,3 +103,69 @@ def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+
+# --- Rate limit (fase 5) -----------------------------------------------------------------------
+
+
+def client_ip(request: Request) -> str:
+    """O IP de quem fez a requisição.
+
+    Atrás do Caddy (fase 6), o endereço da conexão é o do Caddy, não o do usuário. O uvicorn
+    então lê o IP real do cabeçalho X-Forwarded-For — mas SÓ se a conexão veio de um proxy
+    em quem ele confia (opção --forwarded-allow-ips). Confiar em qualquer um permitiria que
+    um atacante inventasse um IP novo a cada requisição e escapasse do limite.
+    """
+    return request.client.host if request.client else "desconhecido"
+
+
+def enforce_rate_limit(
+    session: Session, settings: Settings, *, scope: str, identifier: str, rate: Rate
+) -> None:
+    """Conta a requisição; se passou do limite, responde 429 com Retry-After.
+
+    O commit acontece AQUI, antes da rota: a contagem precisa valer mesmo que a requisição
+    falhe depois (é justamente quem erra a senha que queremos limitar).
+    """
+    if not settings.rate_limit_enabled:
+        return
+    now = datetime.now(UTC)
+    decision = hit(session, rate_key(scope, identifier), rate, now=now)
+    if not decision.allowed:
+        metrics.record(session, now.date(), rate_limited=1)
+    session.commit()
+    if not decision.allowed:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas requisições. Espere um pouco antes de tentar de novo.",
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+
+
+RateOf = Callable[[Settings], Rate]  # como achar o limite na configuração
+
+
+def limit_by_ip(scope: str, rate_of: RateOf) -> Any:
+    """Dependência que limita por IP. Uso: @router.get(..., dependencies=[limit_by_ip(...)]).
+
+    É uma FÁBRICA: cada chamada cria uma função nova (uma closure que "lembra" o escopo e o
+    limite) e a embrulha em Depends.
+    """
+
+    def dependency(request: Request, session: DbSession, settings: SettingsDep) -> None:
+        enforce_rate_limit(
+            session, settings, scope=scope, identifier=client_ip(request), rate=rate_of(settings)
+        )
+
+    return Depends(dependency)
+
+
+def limit_by_user(scope: str, rate_of: RateOf) -> Any:
+    """Dependência que limita por usuário logado (exige token: 401 vem antes do 429)."""
+
+    def dependency(user: CurrentUser, session: DbSession, settings: SettingsDep) -> None:
+        enforce_rate_limit(
+            session, settings, scope=scope, identifier=str(user.id), rate=rate_of(settings)
+        )
+
+    return Depends(dependency)

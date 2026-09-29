@@ -13,11 +13,19 @@ from datetime import UTC, datetime
 import httpx
 from fastapi import APIRouter, HTTPException, status
 
-from app import accounts
-from app.deps import CurrentUser, DbSession, HibpClient, SettingsDep, TokenConfigDep
+from app import accounts, metrics
+from app.deps import (
+    CurrentUser,
+    DbSession,
+    HibpClient,
+    SettingsDep,
+    TokenConfigDep,
+    enforce_rate_limit,
+    limit_by_ip,
+)
 from app.policy import SINGLE_FACTOR, email_context_words, evaluate_password
 from app.prefix_cache import check_password_cached
-from app.routers.passwords import hibp_unavailable
+from app.routers.passwords import LIMIT_ERRORS, hibp_unavailable
 from app.schemas import (
     DeleteAccountRequest,
     ErrorResponse,
@@ -51,7 +59,9 @@ def _token_response(pair: accounts.TokenPair) -> TokenResponse:
         409: {"model": ErrorResponse, "description": "E-mail já cadastrado."},
         422: {"description": "Dados inválidos, termos não aceitos ou senha fraca."},
         503: {"model": ErrorResponse, "description": "O HIBP não respondeu."},
-    },
+    }
+    | LIMIT_ERRORS,
+    dependencies=[limit_by_ip("register-ip", lambda s: s.rate_limit_register_ip)],
 )
 def register(
     body: RegisterRequest, session: DbSession, client: HibpClient, settings: SettingsDep
@@ -99,6 +109,7 @@ def register(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="Este e-mail já está cadastrado."
         ) from None
+    metrics.record(session, datetime.now(UTC).date(), registrations=1)
     session.commit()
     return UserResponse.model_validate(user)
 
@@ -106,10 +117,23 @@ def register(
 @router.post(
     "/login",
     response_model=TokenResponse,
-    responses={401: {"model": ErrorResponse, "description": INVALID_CREDENTIALS}},
+    responses={401: {"model": ErrorResponse, "description": INVALID_CREDENTIALS}} | LIMIT_ERRORS,
+    dependencies=[limit_by_ip("login-ip", lambda s: s.rate_limit_login_ip)],
 )
-def login(body: LoginRequest, session: DbSession, config: TokenConfigDep) -> TokenResponse:
-    """Troca e-mail e senha por um token de acesso e um refresh token."""
+def login(
+    body: LoginRequest, session: DbSession, config: TokenConfigDep, settings: SettingsDep
+) -> TokenResponse:
+    """Troca e-mail e senha por um token de acesso e um refresh token.
+
+    Dois limites: por IP (quem tenta muitas contas) e por e-mail (muitos IPs atacando uma
+    mesma conta — um ataque distribuído que o limite por IP sozinho não pegaria)."""
+    enforce_rate_limit(
+        session,
+        settings,
+        scope="login-email",
+        identifier=accounts.normalize_email(body.email),
+        rate=settings.rate_limit_login_email,
+    )
     try:
         user = accounts.authenticate(
             session, email=body.email, password=body.password.get_secret_value()
@@ -125,7 +149,8 @@ def login(body: LoginRequest, session: DbSession, config: TokenConfigDep) -> Tok
 @router.post(
     "/refresh",
     response_model=TokenResponse,
-    responses={401: {"model": ErrorResponse, "description": INVALID_SESSION}},
+    responses={401: {"model": ErrorResponse, "description": INVALID_SESSION}} | LIMIT_ERRORS,
+    dependencies=[limit_by_ip("refresh-ip", lambda s: s.rate_limit_refresh_ip)],
 )
 def refresh(body: RefreshRequest, session: DbSession, config: TokenConfigDep) -> TokenResponse:
     """Troca o refresh token por um par novo. O token usado deixa de valer; se ele for

@@ -6,11 +6,12 @@ Mudou uma classe aqui? Gere uma migração: alembic revision --autogenerate -m "
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Identity,
@@ -91,3 +92,39 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"RefreshToken(id={self.id!r}, user_id={self.user_id!r})"
+
+
+class RateLimitCounter(Base):
+    """Um contador do rate limit: quantas requisições uma chave fez numa janela (fase 5).
+
+    Chave primária composta (key, window_start): uma linha por chave por janela. O upsert
+    "INSERT ... ON CONFLICT DO UPDATE SET hits = hits + 1" incrementa de forma atômica.
+    """
+
+    __tablename__ = "rate_limit_counters"
+
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)  # "login-ip:<sha256>"
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    hits: Mapped[int]
+
+
+class UsageMetrics(Base):
+    """Contadores de uso por dia (fase 5). Só números agregados: nada identifica ninguém.
+
+    A coluna do dia se chama `day`, não `date`: um atributo `date` dentro da classe
+    esconderia o tipo `date` importado, nas anotações que viessem depois dele.
+    """
+
+    __tablename__ = "usage_metrics"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, unique=True)
+    checks: Mapped[int] = mapped_column(default=0, server_default=text("0"))  # POST /check
+    policies: Mapped[int] = mapped_column(default=0, server_default=text("0"))  # POST /policy
+    ranges: Mapped[int] = mapped_column(default=0, server_default=text("0"))  # GET /range
+    breached: Mapped[int] = mapped_column(default=0, server_default=text("0"))  # achou vazamento
+    cache_hits: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    cache_misses: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    cache_stale: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    registrations: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    rate_limited: Mapped[int] = mapped_column(default=0, server_default=text("0"))  # 429s

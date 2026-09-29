@@ -1,4 +1,4 @@
-"""Rotas de senhas (fase 4): /check, /policy e /range/{prefixo}.
+"""Rotas de senhas (fases 4 e 5): /check, /policy e /range/{prefixo}.
 
 Dois jeitos de usar o PwnCheck, com níveis diferentes de confiança:
 
@@ -6,15 +6,19 @@ Dois jeitos de usar o PwnCheck, com níveis diferentes de confiança:
     GET  /range/{prefixo} o cliente calcula o SHA-1 e manda só o PREFIXO: nós nunca vemos a
                           senha (o mesmo k-anonymity que usamos com o HIBP). É o que a página
                           inicial faz, no navegador.
+
+Cada rota tem um rate limit (fase 5) e registra métricas de uso agregadas por dia.
 """
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, HTTPException, Path, status
 from fastapi.responses import PlainTextResponse
 
-from app.deps import CurrentUser, DbSession, HibpClient, SettingsDep
+from app import metrics
+from app.deps import CurrentUser, DbSession, HibpClient, SettingsDep, limit_by_ip, limit_by_user
 from app.policy import MULTI_FACTOR, SINGLE_FACTOR, evaluate_password
 from app.prefix_cache import check_password_cached, get_range
 from app.schemas import (
@@ -31,6 +35,7 @@ router = APIRouter(tags=["senhas"])
 # Respostas de erro documentadas no /docs (além das de sucesso).
 AUTH_ERRORS = {401: {"model": ErrorResponse, "description": "Sem token, ou token inválido."}}
 HIBP_ERRORS = {503: {"model": ErrorResponse, "description": "O HIBP não respondeu."}}
+LIMIT_ERRORS = {429: {"model": ErrorResponse, "description": "Limite de requisições atingido."}}
 
 
 def hibp_unavailable() -> HTTPException:
@@ -42,7 +47,12 @@ def hibp_unavailable() -> HTTPException:
     )
 
 
-@router.post("/check", response_model=CheckResponse, responses=AUTH_ERRORS | HIBP_ERRORS)
+@router.post(
+    "/check",
+    response_model=CheckResponse,
+    responses=AUTH_ERRORS | HIBP_ERRORS | LIMIT_ERRORS,
+    dependencies=[limit_by_user("check-user", lambda s: s.rate_limit_check_user)],
+)
 def check(
     body: CheckRequest,
     session: DbSession,
@@ -57,14 +67,28 @@ def check(
     """
     password = body.password.get_secret_value()
     try:
-        count, _ = check_password_cached(session, client, password, policy=settings.cache_policy())
+        count, source = check_password_cached(
+            session, client, password, policy=settings.cache_policy()
+        )
     except httpx.HTTPError:
         raise hibp_unavailable() from None
-    session.commit()  # grava a faixa no cache, se ela veio da API
+    metrics.record(
+        session,
+        datetime.now(UTC).date(),
+        checks=1,
+        breached=int(count > 0),
+        **{metrics.CACHE_COUNTER[source]: 1},  # ex.: cache_hits=1
+    )
+    session.commit()  # grava a faixa no cache (se veio da API) e as métricas
     return CheckResponse(breached=count > 0, count=count)
 
 
-@router.post("/policy", response_model=PolicyResponse, responses=AUTH_ERRORS | HIBP_ERRORS)
+@router.post(
+    "/policy",
+    response_model=PolicyResponse,
+    responses=AUTH_ERRORS | HIBP_ERRORS | LIMIT_ERRORS,
+    dependencies=[limit_by_user("policy-user", lambda s: s.rate_limit_check_user)],
+)
 def policy(
     body: PolicyRequest,
     session: DbSession,
@@ -79,9 +103,18 @@ def policy(
     """
     password = body.password.get_secret_value()
     try:
-        count, _ = check_password_cached(session, client, password, policy=settings.cache_policy())
+        count, source = check_password_cached(
+            session, client, password, policy=settings.cache_policy()
+        )
     except httpx.HTTPError:
         raise hibp_unavailable() from None
+    metrics.record(
+        session,
+        datetime.now(UTC).date(),
+        policies=1,
+        breached=int(count > 0),
+        **{metrics.CACHE_COUNTER[source]: 1},
+    )
     session.commit()
 
     result = evaluate_password(
@@ -118,7 +151,8 @@ RANGE_EXAMPLE = {
 @router.get(
     "/range/{prefix}",
     response_class=PlainTextResponse,
-    responses=HIBP_ERRORS | {200: RANGE_EXAMPLE},
+    responses=HIBP_ERRORS | LIMIT_ERRORS | {200: RANGE_EXAMPLE},
+    dependencies=[limit_by_ip("range-ip", lambda s: s.rate_limit_range_ip)],
 )
 def range_(prefix: PrefixPath, session: DbSession, client: HibpClient, settings: SettingsDep):
     """Todos os sufixos vazados que começam com o prefixo, no mesmo formato do HIBP
@@ -132,6 +166,9 @@ def range_(prefix: PrefixPath, session: DbSession, client: HibpClient, settings:
         result = get_range(session, client, prefix, policy=settings.cache_policy())
     except httpx.HTTPError:
         raise hibp_unavailable() from None
+    metrics.record(
+        session, datetime.now(UTC).date(), ranges=1, **{metrics.CACHE_COUNTER[result.source]: 1}
+    )
     session.commit()
     lines = (f"{suffix}:{count}" for suffix, count in sorted(result.suffixes.items()))
     return PlainTextResponse("\r\n".join(lines))

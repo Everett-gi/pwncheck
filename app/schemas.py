@@ -9,7 +9,7 @@ Senhas são SecretStr: não aparecem em print, log ou repr. extra="forbid" rejei
 desconhecidos (um erro de digitação no cliente vira 422, em vez de ser ignorado em silêncio).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
@@ -104,3 +104,29 @@ class PolicyResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# --- Métricas (fase 5) -------------------------------------------------------------------------
+
+
+class DailyMetrics(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    day: date
+    checks: int
+    policies: int
+    ranges: int
+    breached: int
+    cache_hits: int
+    cache_misses: int
+    cache_stale: int
+    registrations: int
+    rate_limited: int
+
+
+class MetricsResponse(BaseModel):
+    days: list[DailyMetrics] = Field(description="Um item por dia com uso, do mais recente.")
+    totals: dict[str, int] = Field(description="Soma de cada contador no período.")
+    cache_hit_rate: float | None = Field(
+        description="Fração das faixas que vieram do cache (null se não houve consultas)."
+    )

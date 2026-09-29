@@ -6,15 +6,23 @@ As classes formam uma escada, e cada ferramenta pede só o degrau de que precisa
     DatabaseSettings        URL do banco                  <- migrações (Alembic)
       └── CacheSettings     + timeout do HIBP e validade  <- CLI e comandos de manutenção
             │                 do cache
-            └── Settings    + segredo dos tokens, limites  <- a API web (fase 4)
+            └── Settings    + segredo dos tokens, limites  <- a API web (fases 4 e 5)
 """
 
 from datetime import timedelta
+from typing import Annotated
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BeforeValidator, Field, SecretStr
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.freshness import CachePolicy
+from app.ratelimit import Rate, parse_rate
+
+# Um limite lido do ambiente como texto ("10/minute") e convertido em Rate na validação.
+# BeforeValidator roda ANTES da validação do tipo: transforma o texto no objeto.
+# NoDecode: sem ele, o pydantic-settings trataria o valor de um tipo "complexo" (Rate) como
+# JSON e falharia em "10/minute" — os testes só pegaram isso lendo de variáveis de ambiente.
+RateSetting = Annotated[Rate, NoDecode, BeforeValidator(parse_rate)]
 
 
 class DatabaseSettings(BaseSettings):
@@ -59,6 +67,15 @@ class Settings(CacheSettings):
     # Tamanho máximo do corpo de uma requisição. Nenhum endpoint precisa de mais que isso.
     max_body_bytes: int = Field(default=16 * 1024, ge=1024)
     log_level: str = "INFO"
+
+    # Rate limits (fase 5), no formato "quantidade/unidade" (second, minute, hour, day).
+    rate_limit_enabled: bool = True
+    rate_limit_login_ip: RateSetting = parse_rate("10/minute")  # tentativas de login por IP
+    rate_limit_login_email: RateSetting = parse_rate("30/hour")  # ...e por conta atacada
+    rate_limit_register_ip: RateSetting = parse_rate("5/hour")
+    rate_limit_refresh_ip: RateSetting = parse_rate("30/minute")
+    rate_limit_check_user: RateSetting = parse_rate("60/minute")  # /check e /policy
+    rate_limit_range_ip: RateSetting = parse_rate("120/minute")  # /range (público)
 
     def access_token_ttl(self) -> timedelta:
         return timedelta(minutes=self.access_token_ttl_minutes)

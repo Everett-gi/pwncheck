@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -181,3 +181,22 @@ def logout(session: Session, token: str, *, now: datetime) -> None:
 def delete_account(session: Session, user: User) -> None:
     """Apaga a conta (LGPD: direito à exclusão). Os tokens caem junto (ON DELETE CASCADE)."""
     session.delete(user)
+
+
+# Tokens revogados ficam um tempo no banco, para a auditoria do reuso; depois, são apagados.
+REVOKED_TOKEN_RETENTION = timedelta(days=7)
+
+
+def purge_refresh_tokens(session: Session, *, now: datetime) -> int:
+    """Apaga refresh tokens expirados ou revogados há mais de 7 dias. Devolve quantos.
+
+    Tokens usados (rotacionados) mas ainda dentro da validade FICAM: são eles que permitem
+    detectar o reuso de um token roubado.
+    """
+    statement = delete(RefreshToken).where(
+        or_(
+            RefreshToken.expires_at < now,
+            RefreshToken.revoked_at < now - REVOKED_TOKEN_RETENTION,
+        )
+    )
+    return session.execute(statement).rowcount

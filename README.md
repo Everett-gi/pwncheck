@@ -6,9 +6,9 @@ Verifica se uma senha já apareceu em vazamentos de dados **sem enviar a senha a
 usando o modelo **k-anonymity** da API [Pwned Passwords](https://haveibeenpwned.com/Passwords)
 (HaveIBeenPwned).
 
-> 🚧 **Em construção — fases 1 a 4 de 6 concluídas:** o cliente k-anonymity, a política de
-> senha (NIST SP 800-63B-4), o cache de prefixos em PostgreSQL e a API web (FastAPI) com
-> contas de usuário. *Rate limit*, métricas e o deploy vêm nas próximas fases.
+> 🚧 **Em construção — fases 1 a 5 de 6 concluídas:** o cliente k-anonymity, a política de
+> senha (NIST SP 800-63B-4), o cache de prefixos em PostgreSQL, a API web (FastAPI) com contas
+> de usuário, *rate limit* e métricas. Falta o deploy com HTTPS.
 
 ## Como funciona
 
@@ -40,12 +40,18 @@ milhares de hashes, e não tem como saber qual era o nosso. A resposta ainda vem
 | `POST /policy` | login | avaliação completa da política (com contexto e MFA) |
 | `POST /auth/register`, `/login`, `/refresh`, `/logout` | — | contas e sessões |
 | `GET` / `DELETE /auth/me` | login | ver e apagar a própria conta (LGPD) |
+| `GET /admin/metrics` | admin | uso por dia: verificações, vazamentos, eficiência do cache, bloqueios |
 
 Documentação interativa em `/docs`. Segurança da autenticação: senhas com **Argon2id**; login
 com tempo de resposta constante (não revela quais e-mails têm conta); **JWT** de 15 minutos com
 algoritmo fixo; **refresh tokens** de uso único, guardados como hash, com **detecção de reuso**
 (um token roubado e reutilizado derruba a sessão inteira). Respostas com CSP, `nosniff` e
 `no-store`; corpo limitado a 16 KB; erros de validação sem eco da senha.
+
+**Rate limit** por janela deslizante, com contadores atômicos no próprio PostgreSQL (sem
+Redis): login limitado por IP **e** por conta (pega ataques distribuídos), respostas **429**
+com `Retry-After` exato — um teste confere a promessa em milhares de situações. IPs e e-mails
+entram nos contadores só como hash. As métricas são contagens por dia, sem dado pessoal.
 
 ## Política de senha
 
@@ -85,7 +91,7 @@ python -m app.cli      # verifica uma senha de verdade: vazamentos + política (
 Copy-Item .env.example .env        # e troque as senhas
 docker compose up -d               # PostgreSQL 16 num container
 alembic upgrade head               # cria as tabelas
-pytest -v                          # 163 testes, sem acesso à internet
+pytest -v                          # 196 testes, sem acesso à internet
 python -m app.cli --cache          # a 2ª consulta da mesma senha vem do cache
 
 # API (fase 4): preencha JWT_SECRET no .env antes
@@ -111,7 +117,7 @@ Sem o banco configurado, os testes que precisam dele são pulados e o resto roda
 2. ✅ Política de força de senha (NIST SP 800-63B-4)
 3. ✅ Cache de prefixos (PostgreSQL + SQLAlchemy + Alembic + Docker)
 4. ✅ API REST (FastAPI) + autenticação (Argon2id, JWT, refresh com rotação)
-5. Rate limit + métricas
+5. ✅ Rate limit (janela deslizante) + métricas
 6. Deploy com HTTPS
 
 O passo a passo de cada fase, em formato de tutorial, está em [docs/tutorial/](docs/tutorial/).

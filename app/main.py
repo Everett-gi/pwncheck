@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import Settings
 from app.database import create_db_engine, create_session_factory
 from app.middleware import BodySizeLimitMiddleware, security_headers
-from app.routers import auth, passwords
+from app.routers import admin, auth, passwords
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -90,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(passwords.router)
+    app.include_router(admin.router)
 
     @app.get("/health", tags=["infra"])
     def health() -> dict[str, str]:

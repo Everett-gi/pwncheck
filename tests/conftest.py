@@ -10,8 +10,10 @@ protege nada.
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic import command
@@ -86,13 +88,23 @@ TEST_JWT_SECRET = "segredo-so-dos-testes-com-mais-de-32-caracteres"
 
 
 @pytest.fixture
-def settings() -> Settings:
-    """Configuração dos testes: nada vem do .env (_env_file=None), tudo é fixo."""
-    return Settings(
-        _env_file=None,
-        database_url=_TestSettings().test_database_url or "postgresql+psycopg://sem-banco/x",
-        jwt_secret=TEST_JWT_SECRET,
-    )
+def make_settings() -> Callable[..., Settings]:
+    """Fábrica de configurações de teste: nada vem do .env (_env_file=None), tudo é fixo.
+    Os testes podem sobrescrever campos: make_settings(rate_limit_login_ip="2/minute")."""
+
+    def factory(**overrides: Any) -> Settings:
+        values = {
+            "database_url": _TestSettings().test_database_url or "postgresql+psycopg://sem-banco/x",
+            "jwt_secret": TEST_JWT_SECRET,
+        }
+        return Settings(_env_file=None, **(values | overrides))
+
+    return factory
+
+
+@pytest.fixture
+def settings(make_settings: Callable[..., Settings]) -> Settings:
+    return make_settings()
 
 
 @pytest.fixture
@@ -102,12 +114,28 @@ def fake_hibp() -> FakeHIBP:
 
 
 @pytest.fixture
-def api(db_session: Session, fake_hibp: FakeHIBP, settings: Settings) -> Iterator[TestClient]:
-    """Um cliente HTTP falando com a aplicação inteira — rotas, middlewares, validação —
-    mas com o banco transacional e o HIBP simulado no lugar das dependências reais."""
-    app = create_app(settings)
-    hibp_client = fake_hibp.client()
-    app.dependency_overrides[get_db] = lambda: db_session
-    app.dependency_overrides[get_hibp_client] = lambda: hibp_client
-    with TestClient(app) as client:  # o "with" roda o lifespan (subida e desligamento)
-        yield client
+def make_api(
+    db_session: Session, fake_hibp: FakeHIBP, make_settings: Callable[..., Settings]
+) -> Iterator[Callable[..., TestClient]]:
+    """Fábrica de clientes HTTP falando com a aplicação inteira — rotas, middlewares,
+    validação — mas com o banco transacional e o HIBP simulado no lugar dos reais.
+
+    make_api() usa a configuração padrão; make_api(rate_limit_login_ip="2/minute") muda
+    campos. O ExitStack fecha todos os clientes criados no fim do teste."""
+    with ExitStack() as stack:
+
+        def factory(**overrides: Any) -> TestClient:
+            app = create_app(make_settings(**overrides))
+            hibp_client = fake_hibp.client()
+            app.dependency_overrides[get_db] = lambda: db_session
+            app.dependency_overrides[get_hibp_client] = lambda: hibp_client
+            # enter_context = "with" que só termina quando o ExitStack terminar; o "with" do
+            # TestClient roda o lifespan (subida e desligamento da aplicação).
+            return stack.enter_context(TestClient(app))
+
+        yield factory
+
+
+@pytest.fixture
+def api(make_api: Callable[..., TestClient]) -> TestClient:
+    return make_api()
